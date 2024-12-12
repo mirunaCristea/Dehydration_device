@@ -1,0 +1,241 @@
+#define BLYNK_TEMPLATE_ID "TMPL46LQSKuOg"
+#define BLYNK_TEMPLATE_NAME "Quickstart Template"
+#define BLYNK_AUTH_TOKEN       "xo4vUEUb0zLCQww9MK3Z5nItFgr9jg2Z"
+
+#include <Adafruit_MLX90614.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32.h>
+
+#include <SparkFun_Bio_Sensor_Hub_Library.h>
+#define APP_DEBUG
+
+#define DEF_ADDR 0x55
+// Your WiFi credentials.
+// Set password to "" for open networks.
+
+// WiFi credentials
+char ssid[] = "xxxx";
+char pass[] = "xxxx";
+
+Adafruit_MLX90614 mlx = Adafruit_MLX90614();
+const int resPin = 17;
+const int mfioPin = 16;
+SparkFun_Bio_Sensor_Hub bioHub(resPin, mfioPin);
+bioData body;
+
+double tempobj;
+double ox;
+double heartrate;
+int sensorValue = 0;
+const int GSR = 32;
+int gsr_average = 0;
+float hydrationLevel = 0;
+
+// Function prototypes
+void checkDehydration(double skinTemp, double heartRate, double oxygenLevel, float hydrationLevel);
+void MeanValue();
+void Hidra();
+void AfisareBodyTemp(double temp);
+void AfisareCardio(double o, double heart);
+void AfisareHidra(float hydrationlevel);
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(13, OUTPUT);
+  delay(100);
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
+  Wire.begin();
+  int result = bioHub.begin();
+
+  if (!result) {
+    Serial.println("Sensor started!");
+  } else {
+    Serial.println("Could not communicate with the sensor!!!");
+  }
+
+  int error = bioHub.configBpm(MODE_TWO); // Configuring just the BPM settings.
+  if (!error) {
+    Serial.println("Sensor configured.");
+  } else {
+    Serial.println("Error configuring sensor.");
+    Serial.print("Error: ");
+    Serial.println(error);
+  }
+
+  int resultIr = mlx.begin();
+  if (resultIr) {
+    Serial.println("Error connecting to MLX sensor. Check wiring.");
+  }
+
+  Serial.println("Configuring Sensor....");
+  delay(4000);
+}
+
+void loop() {
+  Blynk.run();
+  delay(10);
+
+  // Measure body temperature, heart rate, and oxygen level
+  MeanValue();
+  
+  // Measure hydration level
+  Hidra();
+  
+  // Call checkDehydration with the measured values
+  checkDehydration(tempobj, heartrate, ox, hydrationLevel);
+
+  delay(1000);
+}
+
+void checkDehydration(double skinTemp, double heartRate, double oxygenLevel, float hydrationLevel) {
+  String status = "Normal";
+int Pontaj=0;
+
+  // Check skin temperature
+  // if (skinTemp > 37.0) {
+       // Pontaj+=3;
+  //   
+  // } else if (skinTemp > 36.0) {
+    // Pontaj+=2;
+  //   
+  // } else if (skinTemp > 34.0) {
+    // Pontaj+=1;
+  //   
+  // }
+
+  // // Check heart rate
+  // if (heartRate > 120) {
+  //   status = "Severe Dehydration";
+  // Pontaj+=3;
+  // } else if (heartRate > 100 && status != "Severe Dehydration") {
+    // Pontaj+=1;
+  //   
+  // }
+
+  // // Check oxygen level
+  // if (oxygenLevel < 90) {
+  //  
+  // Pontaj+=3;
+  // } else if (oxygenLevel < 95 && status != "Severe Dehydration") {
+    // Pontaj+=1;
+  //   
+  // }
+
+  // Check hydration level
+  if (hydrationLevel < 40) {
+    
+    Pontaj+=3;
+  } else if (hydrationLevel < 60 && status != "Severe Dehydration") {
+   
+    Pontaj+=2;
+  } else if (hydrationLevel < 80 && status == "Normal") {
+    
+    Pontaj+=1;
+  }
+   if (Pontaj>=8) {
+    status = "Severe Dehydration";
+    Pontaj+=3;
+  } else if (Pontaj>=4) {
+    status = "Moderate Dehydration";
+    Pontaj+=2;
+  } else if (Pontaj<=4 && Pontaj>=2) {
+    status = "Mild Dehydration";
+    Pontaj+=1;
+  }
+
+  // Output status
+  Serial.print("Dehydration Status: ");
+  Serial.println(status);
+  Blynk.virtualWrite(V5, status); // Update the Blynk widget with the status
+}
+
+void AfisareBodyTemp(double temp) {
+  Serial.print("Body temp= ");
+  Serial.println(temp);
+  Blynk.virtualWrite(V3, temp);
+}
+
+void AfisareCardio(double o, double heart) {
+  Serial.print("Heartrate: ");
+  Serial.println(heart);
+  Blynk.virtualWrite(V4, heart);
+  
+  Serial.print("Oxygen: ");
+  Serial.println(o);
+  Blynk.virtualWrite(V1, o);
+  
+  Serial.print("Status: ");
+  Serial.println(body.status);
+  Serial.print("Extended Status: ");
+  Serial.println(body.extStatus);
+}
+
+void AfisareHidra(float hydrationlevel) {
+  Serial.print("Hidratare = ");
+  Serial.println(hydrationlevel);
+  Blynk.virtualWrite(V0, hydrationlevel);
+}
+
+void MeanValue() {
+  uint8_t contor = 1;
+  uint8_t contorif = 1;
+  uint8_t contortemp = 1;
+  double sum_temp = 0;
+  double sum_bpm = 0;
+  double sum_ox = 0;
+  Serial.println("Start measuring parameters!");
+  delay(500);
+
+  for (contor; contor <= 20; ++contor) {
+    body = bioHub.readBpm();
+    heartrate = body.heartRate;
+    ox = body.oxygen;
+    tempobj = mlx.readObjectTempC();
+    if (tempobj > 30) {
+      sum_temp += tempobj;
+      contortemp++;
+    }
+
+    if (heartrate > 60 || ox > 70) {
+      sum_bpm += heartrate;
+      sum_ox += ox;
+      contorif++;
+    }
+
+    delay(1000);
+  }
+
+  AfisareBodyTemp(sum_temp / contortemp);
+  AfisareCardio(sum_ox / contorif, sum_bpm / contorif);
+}
+
+float mapToHydration(long resistance) {
+  const long minRes = 10000;
+  const long maxRes = 120000;
+  resistance = constrain(resistance, minRes, maxRes);
+  float hydrationPercent = map(resistance, minRes, maxRes, 100, 0);
+  return hydrationPercent;
+}
+
+void Hidra() {
+  long sum = 0;
+  for (int i = 0; i < 10; i++) {
+    sensorValue = analogRead(GSR);
+    sum += sensorValue;
+    delay(5);
+  }
+  gsr_average = sum / 10;
+
+  long HumanRes = ((1024 + 2 * gsr_average) * 10000) / (1980 - gsr_average);
+
+  hydrationLevel = mapToHydration(HumanRes);
+
+  Serial.print("Resistance: ");
+  Serial.print(HumanRes);
+  Serial.print(" Ohms, Hydration Level: ");
+  Serial.print(hydrationLevel);
+  Serial.println("%");
+  AfisareHidra(hydrationLevel);
+}
